@@ -3,6 +3,7 @@
 #import "RNAudioPlayerURL.h"
 #import "RCTBridge.h"
 #import "RCTEventDispatcher.h"
+@import MediaPlayer;
 
 @implementation RNAudioPlayerURL
 
@@ -10,18 +11,67 @@
 
 RCT_EXPORT_MODULE();
 
-RCT_EXPORT_METHOD(initWithURL:(NSString *)url){
+RCT_EXPORT_METHOD(initWithURL:(NSString *)url title:(NSString *) title artist:(NSString *) artist){
   if(!([url length]>0)) return;
   NSURL *soundUrl = [[NSURL alloc] initWithString:url];
   self.audioItem = [AVPlayerItem playerItemWithURL:soundUrl];
-  self.audioPlayer = [AVPlayer playerWithPlayerItem:self.audioItem];
+  if (self.audioPlayer) {
+    [self.audioPlayer replaceCurrentItemWithPlayerItem:self.audioItem];
+  } else {
+    self.audioPlayer = [AVPlayer playerWithPlayerItem:self.audioItem];
+  }
+  
+  [[AVAudioSession sharedInstance]
+   setCategory: AVAudioSessionCategoryPlayback
+   error: nil];
+  
   [[NSNotificationCenter defaultCenter]
-    addObserver:self selector:@selector(playerItemDidReachEnd:) name:AVPlayerItemDidPlayToEndTimeNotification object:self.audioItem];
+   addObserver:self selector:@selector(playerItemDidReachEnd:) name:AVPlayerItemDidPlayToEndTimeNotification object:self.audioItem];
+  [[NSNotificationCenter defaultCenter]
+   addObserver:self selector:@selector(playerPause:) name:AVPlayerItemPlaybackStalledNotification object:self.audioItem];
+  [[NSNotificationCenter defaultCenter]
+   addObserver:self selector:@selector(playerPause:) name:AVAudioSessionRouteChangeNotification object:self.audioItem];
+  
+  [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = @{
+    MPMediaItemPropertyTitle : title,
+    MPMediaItemPropertyArtist : artist,
+    MPNowPlayingInfoPropertyPlaybackRate : @1.0f
+  };
+  
+  MPRemoteCommandCenter *remoteCommandCenter = [MPRemoteCommandCenter sharedCommandCenter];
+  [[remoteCommandCenter playCommand] addTarget:self action:@selector(playerToggle:)];
+  [remoteCommandCenter playCommand].enabled = true;
+
+  [[remoteCommandCenter pauseCommand] addTarget:self action:@selector(playerToggle:)];
+  [remoteCommandCenter pauseCommand].enabled = true;
+  [[remoteCommandCenter togglePlayPauseCommand] addTarget:self action:@selector(playerToggle:)];
+  [[remoteCommandCenter nextTrackCommand] addTarget:self action:@selector(playerSkip:)];
+  [[remoteCommandCenter bookmarkCommand] addTarget:self action:@selector(playerLike:)];
+  [remoteCommandCenter bookmarkCommand].enabled = true;
+  [remoteCommandCenter bookmarkCommand].localizedTitle = @"like";
+  [remoteCommandCenter bookmarkCommand].localizedShortTitle = @"like";
 }
 
 - (void)playerItemDidReachEnd:(NSNotification *)notification{
   [self.audioItem seekToTime:kCMTimeZero];
+  self.audioItem = nil;
   [self.bridge.eventDispatcher sendAppEventWithName:@"AudioEnded" body:@{@"event": @"finished"}];
+}
+
+- (void)playerSkip:(NSNotification *)notification{
+  [self.bridge.eventDispatcher sendAppEventWithName:@"AudioSkipped" body:@{@"event": @"finished"}];
+}
+
+- (void)playerToggle:(NSNotification *)notification{
+  [self.bridge.eventDispatcher sendAppEventWithName:@"AudioToggled" body:@{@"event": @"finished"}];
+}
+
+- (void)playerLike:(NSNotification *)notification{
+  [self.bridge.eventDispatcher sendAppEventWithName:@"AudioLiked" body:@{@"event": @"finished"}];
+}
+
+- (void)playerPause:(NSNotification *)notification{
+  [self.bridge.eventDispatcher sendAppEventWithName:@"AudioPaused" body:@{@"event": @"finished"}];
 }
 
 RCT_EXPORT_METHOD(getDuration:(RCTResponseSenderBlock)callback){
@@ -32,7 +82,8 @@ RCT_EXPORT_METHOD(getDuration:(RCTResponseSenderBlock)callback){
 }
 
 RCT_EXPORT_METHOD(getCurrentTime:(RCTResponseSenderBlock)callback){
-  while(self.audioItem.status != AVPlayerItemStatusReadyToPlay){
+  if(self.audioItem.status != AVPlayerItemStatusReadyToPlay){
+    callback(nil);
   }
   float currentTime = CMTimeGetSeconds(self.audioItem.currentTime);
   callback(@[[[NSNumber alloc] initWithFloat:currentTime]]);
@@ -51,4 +102,5 @@ RCT_EXPORT_METHOD(seekToTime:(nonnull NSNumber *)toTime){
 }
 
 @end
+
 
