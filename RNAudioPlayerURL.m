@@ -19,6 +19,12 @@ RCT_EXPORT_METHOD(initWithURL:(NSString *)url title:(NSString *) title artist:(N
     [self.audioPlayer replaceCurrentItemWithPlayerItem:self.audioItem];
   } else {
     self.audioPlayer = [AVPlayer playerWithPlayerItem:self.audioItem];
+    [self.audioPlayer addPeriodicTimeObserverForInterval:CMTimeMake(1, 1) queue:NULL usingBlock:^(CMTime time) {
+      [self.bridge.eventDispatcher
+       sendAppEventWithName:@"AudioProgress"
+       body: @{@"currentPosition": [NSNumber numberWithFloat:CMTimeGetSeconds(time)]}
+      ];
+    }];
   }
   
   [[AVAudioSession sharedInstance]
@@ -74,6 +80,7 @@ RCT_EXPORT_METHOD(initWithURL:(NSString *)url title:(NSString *) title artist:(N
   [self.bridge.eventDispatcher sendAppEventWithName:@"AudioPaused" body:@{@"event": @"finished"}];
 }
 
+
 RCT_EXPORT_METHOD(getDuration:(RCTResponseSenderBlock)callback){
   while(self.audioItem.status != AVPlayerItemStatusReadyToPlay){
   }  //this is kind of crude but it will prevent the app from crashing due to a "NAN" return(this allows the getDuration method to be executed in the componentDidMount function of the React class without the app crashing
@@ -90,6 +97,7 @@ RCT_EXPORT_METHOD(getCurrentTime:(RCTResponseSenderBlock)callback){
 }
 
 RCT_EXPORT_METHOD(play){
+  __block RNAudioPlayerURL *weakSelf = self;
   [self.audioPlayer play];
 }
 
